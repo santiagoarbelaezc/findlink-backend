@@ -29,9 +29,7 @@ export class UserService {
       });
 
       if (existingUser) {
-        throw new ConflictException(
-          'El nombre de usuario o email ya está en uso',
-        );
+        throw new ConflictException('El nombre de usuario o email ya está en uso');
       }
 
       // Hash de la contraseña
@@ -41,6 +39,9 @@ export class UserService {
       const user = this.usersRepository.create({
         ...createUserDto,
         passwordHash: hashedPassword,
+        bio: createUserDto.bio || '',
+        avatarUrl: createUserDto.avatarUrl || '',
+        isPublic: createUserDto.isPublic !== undefined ? createUserDto.isPublic : true,
       });
 
       return await this.usersRepository.save(user);
@@ -48,10 +49,7 @@ export class UserService {
       if (error instanceof ConflictException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Error al crear el usuario',
-        error.message,
-      );
+      throw new InternalServerErrorException('Error al crear el usuario');
     }
   }
 
@@ -110,17 +108,46 @@ export class UserService {
     return user;
   }
 
+  async findByEmail(email: string): Promise<User> {
+    const user = await this.usersRepository.findOne({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`Usuario con email ${email} no encontrado`);
+    }
+
+    return user;
+  }
+
+  async findByEmailOrUsername(email: string, username: string): Promise<User | null> {
+    return await this.usersRepository.findOne({
+      where: [
+        { email },
+        { username },
+      ],
+    });
+  }
+
+  async validateUserForAuth(email: string): Promise<User | null> {
+    return await this.usersRepository.findOne({
+      where: { email },
+      select: ['id', 'email', 'passwordHash', 'username', 'displayName', 'avatarUrl'],
+    });
+  }
+
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
 
     // Si se actualiza la contraseña, hashear
     if (updateUserDto.password) {
-      updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
-      delete updateUserDto.password;
+      const hashedPassword = await bcrypt.hash(updateUserDto.password, 10);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { password, ...updateData } = updateUserDto;
+      Object.assign(user, { ...updateData, passwordHash: hashedPassword });
+    } else {
+      Object.assign(user, updateUserDto);
     }
-
-    // Actualizar campos
-    Object.assign(user, updateUserDto);
 
     return await this.usersRepository.save(user);
   }
